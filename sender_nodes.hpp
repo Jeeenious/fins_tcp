@@ -16,6 +16,7 @@ public:
     set_category("Contact");
     register_input<std::string>("hex", &TcpProxySender::on_hex);
   }
+  void run() override {}
   void initialize() override {
     logger->info("TcpProxySender 初始化.");
     auto &c = TcpSessionPool::instance().get(config::PI_IP, config::PI_PORT);

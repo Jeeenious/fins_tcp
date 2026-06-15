@@ -4,6 +4,8 @@
 
 #include "tcp_session.h"
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <cstdio>
 #include <cstring>
@@ -19,9 +21,24 @@ bool TcpConnection::connect(const std::string &ip, int port) {
   if (::inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
     ::close(sock_fd_); sock_fd_ = -1; return false;
   }
-  if (::connect(sock_fd_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+
+  // 非阻塞 connect, 超时 2 秒
+  int flags = ::fcntl(sock_fd_, F_GETFL, 0);
+  ::fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
+  int ret = ::connect(sock_fd_, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret < 0 && errno == EINPROGRESS) {
+    struct pollfd pfd;
+    pfd.fd = sock_fd_;
+    pfd.events = POLLOUT;
+    ret = ::poll(&pfd, 1, 2000);
+    if (ret <= 0) { ::close(sock_fd_); sock_fd_ = -1; return false; }
+    int err = 0; socklen_t len = sizeof(err);
+    ::getsockopt(sock_fd_, SOL_SOCKET, SO_ERROR, &err, &len);
+    if (err) { ::close(sock_fd_); sock_fd_ = -1; return false; }
+  } else if (ret < 0) {
     ::close(sock_fd_); sock_fd_ = -1; return false;
   }
+  ::fcntl(sock_fd_, F_SETFL, flags);  // 恢复阻塞模式
   std::cout << "[TCP] Connected " << ip << ":" << port << "\n";
   return true;
 }
